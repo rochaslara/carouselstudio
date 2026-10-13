@@ -14,6 +14,7 @@ To host it, enable GitHub Pages on this repository (Settings → Pages → deplo
 
 - **52 templates** in five groups: 3D & Perspective, Carousel, Stack, Zoom & Reveal, and Grid. Cards are drawn in real 3D with WebGL2.
 - **Images:** add, drop or paste images. Click to show or hide each one, and drag to reorder.
+- **Framing:** move each image inside its card and zoom in to crop tighter. Drag, scroll, pinch or use the arrow keys.
 - **Cards:** ratio, size, corner radius, spacing, shadow and outline.
 - **Motion:** time per card, easing, pause between steps, tilt and reverse.
 - **Background:** on or off, solid, gradient, glow or your own image (with blur and darken), plus grain.

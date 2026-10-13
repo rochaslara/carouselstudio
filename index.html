@@ -137,6 +137,21 @@ select{width:100%;background:var(--bg);border:1px solid var(--line);border-radiu
 .thumb:hover .x,.thumb:focus-within .x{display:block}
 .thumb .tag{position:absolute;left:0;right:0;bottom:0;font:500 9px/1 var(--font-ui);letter-spacing:.06em;text-transform:uppercase;background:rgba(0,0,0,.55);color:#fff;padding:3px 0;text-align:center}
 .thumb.drop-before{box-shadow:-4px 0 0 var(--focus)}
+.thumb .x{right:26px;top:3px}
+.thumb.editing{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--focus)}
+.thumb .adj{position:absolute;right:3px;top:3px;z-index:1;width:20px;height:20px;border-radius:5px;border:0;padding:0;background:rgba(0,0,0,.65);color:#fff;display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity .12s}
+.thumb .adj svg{width:12px;height:12px}
+.thumb:hover .adj,.thumb:focus-within .adj,.thumb .adj.set,.thumb.editing .adj{opacity:1}
+.thumb .adj.set{background:var(--accent);color:var(--accent-ink)}
+@media (hover:none){.thumb .adj{opacity:1}}
+.framer{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.framer-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.framer-title{display:grid;gap:2px;min-width:0}
+.framer-title b{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.framer-nav{display:flex;gap:2px;flex:none}
+.framer-nav .btn{font-size:17px;line-height:1;padding:2px 9px}
+#frCanvas{width:100%;max-width:100%;aspect-ratio:1/.78;border-radius:7px;display:block;cursor:grab;touch-action:none}
+#frCanvas:active{cursor:grabbing}
 .count{font-size:12px;color:var(--muted)}
 .count b{color:var(--fg);font-weight:600}
 
@@ -214,7 +229,17 @@ select{width:100%;background:var(--bg);border:1px solid var(--line);border-radiu
         <input type="file" id="fileIn" accept="image/*" multiple hidden>
       </div>
       <div class="thumbs" id="thumbs"></div>
-      <p class="note">Click a thumbnail to show or hide it. Drag to reorder. You can also drop or paste images onto the stage.</p>
+      <div class="framer" id="framer" hidden>
+        <div class="framer-head">
+          <span class="framer-title"><span class="lbl">Position in card</span><b id="frName"></b></span>
+          <span class="framer-nav"><button class="btn ghost" id="frPrev" aria-label="Previous image">‹</button><button class="btn ghost" id="frNext" aria-label="Next image">›</button></span>
+        </div>
+        <canvas id="frCanvas" tabindex="0" aria-label="Image position. Drag or use the arrow keys to move the image, plus and minus to zoom, 0 to reset."></canvas>
+        <div class="row"><label for="frZoom">Zoom</label><input type="range" id="frZoom" min="1" max="4" step="0.01" value="1"><output data-unit="×"></output></div>
+        <p class="note" id="frHint"></p>
+        <div class="add"><button class="btn ghost" id="frReset">Reset</button><button class="btn" id="frDone">Done</button></div>
+      </div>
+      <p class="note">Click a thumbnail to show or hide it, and drag to reorder. Use the arrows button on a thumbnail to move the image inside its card. You can also drop or paste images onto the stage.</p>
       <div class="add">
         <button class="btn ghost" id="allBtn">Show all</button>
         <button class="btn ghost" id="noneBtn">Hide all</button>
@@ -427,7 +452,7 @@ void main(){
       gl.uniform1f(U.uUnm,c.unmirror?1:0);gl.uniform1f(U.uOutline,outl&&!c.color?Math.max(0.002,Math.min(w,h)*0.006):0);
       if(c.color){gl.uniform1i(U.uMode,1);gl.uniform3f(U.uColor,c.color[0],c.color[1],c.color[2])}
       else if(c.it){const t=texFor(c.it);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,t.tex);gl.uniform1i(U.uMode,0);
-        gl.uniform1f(U.uIA,t.ia);gl.uniform1f(U.uCA,(c.w*(c.stretch?1:(c.sx||1)))/(c.h*(c.stretch?1:(c.sy||1))));gl.uniform1f(U.uZoom,c.zoom||1);gl.uniform2f(U.uPan,c.panX||0,c.panY||0)}
+        gl.uniform1f(U.uIA,t.ia);gl.uniform1f(U.uCA,(c.w*(c.stretch?1:(c.sx||1)))/(c.h*(c.stretch?1:(c.sy||1))));gl.uniform1f(U.uZoom,(c.zoom||1)*(c.it.zoom||1));gl.uniform2f(U.uPan,c.panX!==undefined?c.panX:(c.it.px||0),c.panY!==undefined?c.panY:-(c.it.py||0))}
       else continue;
       gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     }
@@ -724,12 +749,13 @@ const store={db:null,
   async get(k){const db=await this.open();return new Promise((res,rej)=>{const t=db.transaction('kv');const r=t.objectStore('kv').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}};
 let saveTimer=0;
 function persist(){clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{
-  await store.put('project2',{S,images:images.filter(i=>!i.sample).map(i=>({id:i.id,name:i.name,on:i.on,blob:i.blob})),samples:images.some(i=>i.sample),sampleState:images.filter(i=>i.sample).map(i=>({id:i.id,on:i.on})),order:images.map(i=>i.id),bg:bgImage?bgImage.blob:null})}catch(e){}},500)}
+  await store.put('project2',{S,images:images.filter(i=>!i.sample).map(i=>({id:i.id,name:i.name,on:i.on,blob:i.blob,px:i.px||0,py:i.py||0,zoom:i.zoom||1})),samples:images.some(i=>i.sample),sampleState:images.filter(i=>i.sample).map(i=>({id:i.id,on:i.on,px:i.px||0,py:i.py||0,zoom:i.zoom||1})),order:images.map(i=>i.id),bg:bgImage?bgImage.blob:null})}catch(e){}},500)}
 async function restore(){try{let p=await store.get('project2');if(!p){p=await store.get('project');if(p&&p.S){p.S={card:p.S.card,bg:p.S.bg,exp:p.S.exp,aspect:p.S.aspect}}}if(!p)return false;
   S=Object.assign(structuredClone(DEFAULT),p.S||{});for(const k of ['card','motion','bg','exp'])S[k]=Object.assign(structuredClone(DEFAULT[k]),(p.S||{})[k]||{});
   if(!TPL[S.preset])S.preset=DEFAULT.preset;
-  const loaded=[];for(const r of p.images||[]){try{loaded.push(await fromBlob(r.blob,r.name,r.id,r.on))}catch(e){}}
-  let all=loaded;if(p.samples){const sm=makeSamples();const st=new Map((p.sampleState||[]).map(x=>[x.id,x.on]));sm.forEach(s=>{if(st.has(s.id))s.on=st.get(s.id)});all=all.concat(sm.filter(s=>st.size?st.has(s.id):true))}
+  const frame=(it,r)=>{it.px=r.px||0;it.py=r.py||0;it.zoom=r.zoom||1;return it};
+  const loaded=[];for(const r of p.images||[]){try{loaded.push(frame(await fromBlob(r.blob,r.name,r.id,r.on),r))}catch(e){}}
+  let all=loaded;if(p.samples){const sm=makeSamples();const st=new Map((p.sampleState||[]).map(x=>[x.id,x]));sm.forEach(s=>{const r=st.get(s.id);if(r){s.on=r.on;frame(s,r)}});all=all.concat(sm.filter(s=>st.size?st.has(s.id):true))}
   const ord=p.order||[];all.sort((a,b)=>(ord.indexOf(a.id)+1||1e6)-(ord.indexOf(b.id)+1||1e6));images=all;
   if(p.bg){try{const b=await fromBlob(p.bg,'bg');bgImage={src:b.src,w:b.w,h:b.h,blob:p.bg}}catch(e){}}
   return true}catch(e){return false}}
@@ -767,7 +793,7 @@ function bindAll(){
 function changed(path){
   if(path==='exp.format'){if(!fpsOptions().includes(S.exp.fps))S.exp.fps=S.exp.format==='gif'?20:30;if(S.exp.format==='gif'&&S.exp.width>1080)S.exp.width=720;buildExportSelects()}
   if(path==='aspect')sizeView();
-  syncControls();persist();queueThumbs();
+  syncControls();persist();queueThumbs();if(frId)drawFramer();
 }
 
 /* ============================== Template library ============================== */
@@ -796,13 +822,16 @@ function selectTemplate(id){const t=TPL[id];S.preset=id;if(t.size)S.card.size=t.
 /* ============================== Image thumbnails ============================== */
 let dragId=null;
 function renderThumbs(){const wrap=$('#thumbs');wrap.innerHTML='';let n=0;
-  images.forEach(im=>{const b=document.createElement('div');b.className='thumb'+(im.on?'':' off');b.tabIndex=0;b.draggable=true;b.dataset.id=im.id;
+  images.forEach(im=>{const b=document.createElement('div');b.className='thumb'+(im.on?'':' off')+(im.id===frId?' editing':'');b.tabIndex=0;b.draggable=true;b.dataset.id=im.id;
     b.setAttribute('role','button');b.setAttribute('aria-pressed',String(im.on));b.setAttribute('aria-label',`${im.name}, ${im.on?'shown':'hidden'}`);
     const img=document.createElement('img');img.src=im.thumb;img.alt='';b.appendChild(img);
     if(im.on){n++;const s=document.createElement('span');s.className='n';s.textContent=n;b.appendChild(s)}
     if(im.sample){const t=document.createElement('span');t.className='tag';t.textContent='Sample';b.appendChild(t)}
+    const adj=document.createElement('button');adj.type='button';adj.className='adj'+(isFramed(im)?' set':'');adj.setAttribute('aria-label','Move '+im.name+' inside its card');adj.title='Move image inside card';
+    adj.innerHTML='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2"/></svg>';
+    adj.addEventListener('click',e=>{e.stopPropagation();if(frId===im.id)closeFramer();else openFramer(im.id)});adj.addEventListener('keydown',e=>e.stopPropagation());b.appendChild(adj);
     const x=document.createElement('button');x.className='x';x.type='button';x.textContent='×';x.setAttribute('aria-label','Remove '+im.name);
-    x.addEventListener('click',e=>{e.stopPropagation();images=images.filter(i=>i!==im);renderThumbs();persist()});b.appendChild(x);
+    x.addEventListener('click',e=>{e.stopPropagation();images=images.filter(i=>i!==im);renderThumbs();persist()});x.addEventListener('keydown',e=>e.stopPropagation());b.appendChild(x);
     const toggle=()=>{im.on=!im.on;renderThumbs();persist()};
     b.addEventListener('click',toggle);b.addEventListener('keydown',e=>{
       if(e.key===' '||e.key==='Enter'){e.preventDefault();toggle();refocus(im.id)}
@@ -814,10 +843,65 @@ function renderThumbs(){const wrap=$('#thumbs');wrap.innerHTML='';let n=0;
     b.addEventListener('dragend',()=>{dragId=null;document.querySelectorAll('.drop-before').forEach(x=>x.classList.remove('drop-before'))});
     wrap.appendChild(b)});
   $('#count').innerHTML=images.length?`<b>${n}</b> of ${images.length} shown`:'No images yet';
+  if(frId&&!frItem())closeFramer(true);else if(frId)drawFramer();
   if(GL)GL.prune(new Set(images.map(i=>i.id)));
   syncControls();queueThumbs();
 }
 function refocus(id){const el=document.querySelector(`.thumb[data-id="${id}"]`);if(el)el.focus()}
+
+/* ============================== Framing: move an image inside its card ============================== */
+// px/py run -1..1 (like CSS object-position 0%..100%, y down); zoom 1..4 crops in further.
+let frId=null,frPinch=null;const frPtrs=new Map();
+const frItem=()=>images.find(i=>i.id===frId);
+const isFramed=it=>!!it&&((it.px||0)!==0||(it.py||0)!==0||(it.zoom||1)!==1);
+function frGeom(){const cv=$('#frCanvas'),W=cv.width,H=cv.height,it=frItem();if(!it||!W)return null;
+  const r=ratio(S.card.shape);let fw=W*.6,fh=fw/r;if(fh>H*.8){fh=H*.8;fw=fh*r}
+  const ia=it.w/it.h,z=it.zoom||1;let dw,dh;if(ia>r){dh=fh;dw=fh*ia}else{dw=fw;dh=fw/ia}dw*=z;dh*=z;
+  return{W,H,it,fw,fh,dw,dh,mx:(dw-fw)/2,my:(dh-fh)/2}}
+function rrPath(x,X,Y,w,h,r){r=Math.max(0,Math.min(r,w/2,h/2));x.beginPath();x.moveTo(X+r,Y);x.arcTo(X+w,Y,X+w,Y+h,r);x.arcTo(X+w,Y+h,X,Y+h,r);x.arcTo(X,Y+h,X,Y,r);x.arcTo(X,Y,X+w,Y,r);x.closePath()}
+function drawFramer(){const cv=$('#frCanvas');if(!frId||$('#framer').hidden)return;
+  const css=cv.clientWidth||260,dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(css*dpr),h=Math.round(css*.78*dpr);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+  const g=frGeom();if(!g)return;const x=cv.getContext('2d'),it=g.it;
+  const fx=(w-g.fw)/2,fy=(h-g.fh)/2,ox=w/2-(it.px||0)*g.mx-g.dw/2,oy=h/2-(it.py||0)*g.my-g.dh/2,rr=Math.min(g.fw,g.fh)*S.card.radius/100;
+  x.clearRect(0,0,w,h);x.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--thumb').trim()||'#0b0c0f';x.fillRect(0,0,w,h);
+  x.globalAlpha=.3;x.drawImage(it.src,ox,oy,g.dw,g.dh);x.globalAlpha=1;
+  x.save();rrPath(x,fx,fy,g.fw,g.fh,rr);x.clip();x.drawImage(it.src,ox,oy,g.dw,g.dh);
+  x.strokeStyle='rgba(255,255,255,.3)';x.lineWidth=dpr;x.beginPath();
+  for(let i=1;i<3;i++){x.moveTo(fx+g.fw*i/3,fy);x.lineTo(fx+g.fw*i/3,fy+g.fh);x.moveTo(fx,fy+g.fh*i/3);x.lineTo(fx+g.fw,fy+g.fh*i/3)}x.stroke();x.restore();
+  rrPath(x,fx,fy,g.fw,g.fh,rr);x.strokeStyle='#fff';x.lineWidth=1.5*dpr;x.stroke();
+  const zr=$('#frZoom');zr.value=it.zoom||1;updRange(zr);$('#frName').textContent=it.name;
+  $('#frHint').textContent=(g.mx>1||g.my>1)?'Drag to move the image. Scroll or pinch to zoom. Double-click to reset.':'This image already fits the card exactly. Zoom in to choose which part shows.';
+}
+function frChanged(){drawFramer();persist();queueThumbs();const b=document.querySelector(`.thumb[data-id="${frId}"] .adj`);if(b)b.classList.toggle('set',isFramed(frItem()))}
+function frMove(dx,dy){const g=frGeom();if(!g)return;const it=g.it;if(g.mx>.5)it.px=clamp((it.px||0)-dx/g.mx,-1,1);if(g.my>.5)it.py=clamp((it.py||0)-dy/g.my,-1,1);frChanged()}
+function frZoom(z){const it=frItem();if(!it)return;it.zoom=clamp(z,1,4);frChanged()}
+function frReset(){const it=frItem();if(!it)return;it.px=0;it.py=0;it.zoom=1;frChanged()}
+function openFramer(id){frId=id;$('#framer').hidden=false;renderThumbs();$('#framer').scrollIntoView({block:'nearest',behavior:'smooth'})}
+function closeFramer(skipRender){frId=null;$('#framer').hidden=true;if(!skipRender)renderThumbs()}
+function stepFramer(d){if(!images.length)return;const i=images.findIndex(x=>x.id===frId);frId=images[mod(i+d,images.length)].id;renderThumbs()}
+function wireFramer(){const cv=$('#frCanvas');
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);frPtrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(frPtrs.size===2){const [a,b]=[...frPtrs.values()];frPinch={d:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),z:frItem()?.zoom||1}}});
+  cv.addEventListener('pointermove',e=>{const p=frPtrs.get(e.pointerId);if(!p)return;const k=cv.width/(cv.clientWidth||1);
+    if(frPtrs.size===1)frMove((e.clientX-p.x)*k,(e.clientY-p.y)*k);
+    p.x=e.clientX;p.y=e.clientY;
+    if(frPtrs.size===2&&frPinch){const [a,b]=[...frPtrs.values()];frZoom(frPinch.z*Math.hypot(a.x-b.x,a.y-b.y)/frPinch.d)}});
+  const up=e=>{frPtrs.delete(e.pointerId);if(frPtrs.size<2)frPinch=null};
+  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  cv.addEventListener('wheel',e=>{e.preventDefault();frZoom((frItem()?.zoom||1)*Math.exp(-e.deltaY*.0015))},{passive:false});
+  cv.addEventListener('dblclick',frReset);
+  cv.addEventListener('keydown',e=>{const it=frItem();if(!it)return;const st=e.shiftKey?.2:.05;
+    const m={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
+    if(m){e.preventDefault();it.px=clamp((it.px||0)-m[0]*st,-1,1);it.py=clamp((it.py||0)-m[1]*st,-1,1);frChanged()}
+    else if(e.key==='+'||e.key==='='){e.preventDefault();frZoom((it.zoom||1)+.1)}
+    else if(e.key==='-'){e.preventDefault();frZoom((it.zoom||1)-.1)}
+    else if(e.key==='0'){e.preventDefault();frReset()}});
+  $('#frZoom').addEventListener('input',e=>frZoom(+e.target.value));
+  $('#frReset').addEventListener('click',frReset);$('#frDone').addEventListener('click',()=>closeFramer());
+  $('#frPrev').addEventListener('click',()=>stepFramer(-1));$('#frNext').addEventListener('click',()=>stepFramer(1));
+  new ResizeObserver(()=>{if(frId)drawFramer()}).observe(cv);
+}
 
 /* ============================== Stage + playback ============================== */
 const view=$('#view'),vctx=view.getContext('2d');
@@ -928,11 +1012,11 @@ function wire(){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)setPlaying(false);
 }
 (async function init(){
-  bindAll();buildLibrary();wire();
+  bindAll();buildLibrary();wire();wireFramer();
   const ok=await restore();if(!ok)images=makeSamples();
   buildExportSelects();filterLib();renderThumbs();sizeView();syncControls();
   if(document.fonts)Promise.all(['800 104px "Bricolage Grotesque"','500 30px "Geist Mono"'].map(f=>document.fonts.load(f))).catch(()=>{}).then(()=>{
-    if(images.some(i=>i.sample)){const fresh=makeSamples();images=images.map(i=>{if(!i.sample)return i;const f=fresh.find(x=>x.id===i.id);f.on=i.on;return f});renderThumbs()}});
+    if(images.some(i=>i.sample)){const fresh=makeSamples();images=images.map(i=>{if(!i.sample)return i;const f=fresh.find(x=>x.id===i.id);f.on=i.on;f.px=i.px;f.py=i.py;f.zoom=i.zoom;return f});renderThumbs()}});
   requestAnimationFrame(tick);
 })();
 </script>
